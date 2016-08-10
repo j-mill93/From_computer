@@ -275,9 +275,9 @@ do t_step = 2, no_time_steps   ! start time loop
        K_conduct_S = (2*pi*radius_array(j)*Delta_r)/((((0.5*Delta_L) &
          /k_Al_Cu) + ((0.5*Delta_L)/k_Al_Cu)) + (Resistance_array(i, j))) * 100
 
-  !     if (Temp_S .lt. 300D0) then
-  !         K_conduct_S = 0D0
-  !     endif
+       if (Temp_S .lt. 300D0) then
+           K_conduct_S = 0D0
+       endif
        ! East and West vectors
 
        K_conduct_E = (Delta_L) &
