@@ -280,6 +280,8 @@ do t_step = 2, no_time_steps   ! start time loop
        endif
        ! East and West vectors
 
+2+2
+
        K_conduct_E = (Delta_L) &
        /(((1/(2*pi*k_Al_Cu))*log((radius_array(j)+(Delta_r/2)&
        /radius_array(j + 1)))) + ((1/(2*pi*k_Al_Cu)) &
