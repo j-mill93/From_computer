@@ -122,6 +122,7 @@ integer(kind = 8) :: rod_array_radius ! radius of the Cu 10wt% Al rod and molybd
                             ! array integer length
 integer(kind = 8) :: row ! for looping through variables to print out to a text file
 integer(kind = 8) :: col ! for looping through variables to print out to a text file
+integer(kind = 8) :: T_to_write
 character*32:: filename
 
 ! real numbers used to calculate thermal conductivity parameters
@@ -134,19 +135,27 @@ real(kind = 8) :: k_E    ! thermal conductivity at East of ij
 real(kind = 8) :: k_S    ! thermal conductivity at South of ij
 real(kind = 8) :: k_W    ! thermal conductivity at West of ij
 
-
+!IMPLICIT NONE
+INTEGER :: counter, NR
 ! Assign variables to the parameters !
 
 ! Declare constant Pi
 real(kind = 8), parameter :: pi= 3.1415927D0
 
+! Non-advancing status counter:
+!Shows how to place a non-advancing status counter...
+
+
+
+
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 ! Assign the parameters                                                        !
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+NR = 100 ! For the counter
 
 radius_rod = 5D-3 ! Radius of the rod [m]
 length_rod = 0.2D0 ! length of the rod in [m]
-C_AlCu = 0.91D3 ! heat capacity of Al-10wt%Cu, this needs to change to be dependent upon temperature.
+C_AlCu = 900D0 ! heat capacity of Al-10wt%Cu, this needs to change to be dependent upon temperature.
 dens_AlCu = 2550D0! Density of pure Al at T_melt [kg/m^3]
 k_Al_Cu = 213D0 ! thermal conductivity
 
@@ -160,16 +169,16 @@ L_heater2 = 0.05D0 ! length of the second heater
 L_aerogel = 0.05D0 ! length of the aerogel between the two heaters
 R_AlCu_Heater = 0D0 ! Resistance between the heaters and the Al-Cu
 
-length_moly = 0.1D0 ! length of the molybdenum heat sink
-C_moly = 0.25D3 ! heat capacity of the molybdenum heat sink
+length_moly = 0.01D0 ! length of the molybdenum heat sink
+C_moly = 280D0 ! heat capacity of the molybdenum heat sink
 dens_moly = 10220D0 ! density of the molybdenum
 k_moly = 138D0 ! thermal conductivity of the molybdenum
 R_AlCu_Moly = 0D0 ! Resistance between the molybdenum and the Al-Cu
 
-t_total = 1D1 ! total time the analysis is run over [s]
-Delta_t = 1D0 ! time step
-Delta_r = 1D-3 ! The radius step
-Delta_L = 1D-2 ! The length step
+t_total = 1D6 ! total time the analysis is run over [s]
+Delta_t = 1D1 ! time step
+Delta_r = 1D-4 ! The radius step
+Delta_L = 1D-3 ! The length step
 
 a_poly = -1.4D-7 ! coefficient a of the polynomial equation
 b_poly = 2.12D-3 ! coefficient b of the polynomial equation
@@ -260,7 +269,11 @@ print*, "radius_array", size(radius_array)
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
 do t_step = 1, no_time_steps   ! start time loop
-  ! initialise a new temperature array the same as the previous loops array
+
+    ! Step counter. Outputs percentage to completion to the console
+    write(*,FMT="(A1,A,t21,F6.2,A)",ADVANCE="NO") achar(13), &
+    & " Percent Complete: ", (real(t_step)/real(no_time_steps))*100.0, "%"
+    ! initialise a new temperature array the same as the previous loops array
   Temp_array_new = Temp_array
 
   do i = 2, (size(length_array) - 1)  ! loop over length of the array
@@ -278,7 +291,8 @@ do t_step = 1, no_time_steps   ! start time loop
 
       ! Calculate the thermal conductivity of all of the relevent points, i.e.
       ! k_ij, k_N, k_E, k_S,k_W. The data is calculated from a polynomial fitted
-      ! curve of thermal conductivity data for Al-10wt%Cu data from NIST
+      ! curve of thermal conductivity data for Al-10wt%Cu from 200K to 800K
+      ! data from NIST:
       ! http://www.nist.gov/data/PDFfiles/jpcrd123.pdf
 
       k_ij = a_poly*Temp_ij + b_poly*Temp_ij + c_poly
@@ -329,27 +343,27 @@ do t_step = 1, no_time_steps   ! start time loop
        Q_E = K_conduct_E*(Temp_E - Temp_ij)
        Q_S = K_conduct_S*(Temp_S - Temp_ij)
        Q_W = K_conduct_W*(Temp_W - Temp_ij)
-       print*, Temp_N, Temp_S, Temp_ij, "T"
-       print*, K_conduct_N, K_conduct_S, "K"
-       print*, Q_N, Q_E, "Q"
       ! Calculate the new Temperature at the point i,j and time t_step
-    !   if (Q_S .gt. Q_N) then
-    !      T_new = (((-Q_W + Q_E + Q_S - Q_N)*Delta_t) &
-    !         / (2*pi*(C_AlCu*dens_AlCu)*radius_array(j)*Delta_r)) + Temp_ij
 
-    !      Temp_array_new(i,j) = T_new
-
-    !   elseif (Q_N .gt. Q_S) then
-    !      T_new = (((- Q_W + Q_E - Q_S + Q_N)*Delta_t) &
-    !         / (2*pi*(C_AlCu*dens_AlCu)*radius_array(j)*Delta_r)) + Temp_ij
-    !      Temp_array_new(i,j) = T_new
-
-    !   else
+       if (ABS(Q_S) .gt. ABS(Q_N)) then
           T_new = (((-Q_W + Q_E + Q_S - Q_N)*Delta_t) &
              / (2*pi*(C_AlCu*dens_AlCu)*radius_array(j)*Delta_r)) + Temp_ij
 
           Temp_array_new(i,j) = T_new
-    !    endif
+
+       elseif (ABS(Q_N) .gt. ABS(Q_S)) then
+          T_new = (((- Q_W + Q_E - Q_S + Q_N)*Delta_t) &
+             / (2*pi*(C_AlCu*dens_AlCu)*radius_array(j)*Delta_r)) + Temp_ij
+          Temp_array_new(i,j) = T_new
+       else
+
+          T_new = (((-Q_W + Q_E - Q_S + Q_N)*Delta_t) &
+             / (2*pi*(C_AlCu*dens_AlCu)*radius_array(j)*Delta_r)) + Temp_ij
+
+          Temp_array_new(i,j) = T_new
+
+        endif
+
     end do   ! end loop over radius
 
     Temp_array_new(i,size(radius_array)) = Temp_array(i,size(radius_array)-1)
@@ -361,16 +375,20 @@ do t_step = 1, no_time_steps   ! start time loop
 
   ! Save the new Temperature array as a .txt file from 2 -> the last one.
   ! The first file was saved above earlier.
-  write (filename, '( "temp/Temp_array", i0,".txt" )' ) t_step
+  if (MOD(t_step,10) .eq. 0) then
+  write (filename, '( "temp/Temp_array", i0,".csv" )' ) t_step
   open(unit=t_step,file=filename) ! open file
-    do row = 1, n_row_array ! loop along the rows
-      write(t_step, '(1000(F14.1))')( real(Temp_array(row,col)) &
-          ,col=1,n_col_array) ! Write each row to file
-    enddo ! end loop along the rows
+      write(t_step, *) "X",",", "Y",",","Z",",", "T"
+      do row = 1, n_row_array
+      do col = 1, n_col_array ! loop along the columns
+        T_to_write = Temp_array(row,col)
+      write(t_step, *) real(row),",", real(col), &
+      ",",real(0),"," ,real(T_to_write) !, 0, T_to_write) ! Write each row to file
+      enddo
+      enddo ! end loop along the rows
   close (t_step) ! close the file Temp_array"t_step".txt
+  endif
+!enddo ! end time loop
 
-enddo ! end time loop
-
-
-
+enddo ! End the status counter
 end program Aerogel_Furnace_Temp_Sim
