@@ -97,9 +97,23 @@ real(kind = 8) :: Q_E! Thermal flux East
 real(kind = 8) :: Q_S! Thermal flux South
 real(kind = 8) :: Q_W! Thermal flux West
 
+! Real numbers for the changing temperature of the heaters 1 and 2
+real(kind = 8) :: T_centre_start ! when the average temperature of the central
+                                 ! points of the rod are greater than this value
+                                 ! then the heaters will begin to change temperature
+real(kind = 8) :: T_centre ! Average temperature in the centre of the rod
+real(kind = 8) :: T_heater1_new  ! The new heater1 temperature
+real(kind = 8) :: T_heater2_new  ! The new heater2 temperature
+real(kind = 8) :: Time_for_T_change ! Time for the change from the initial to final temperatures
+                                    ! in the heaters.
+real(kind = 8) :: Thermal_gradient ! thermal gradient between the two heaters
+                                   ! T_heater1/T_heater2
+real(kind = 8) :: T_heater1_Final ! The final temperature of heater 1.
+real(kind = 8) :: dTdt ! change in temperature each second
 ! 1D arrays of radius and length values used in the calculation of the temperature
 real(kind = 8), dimension(:), allocatable :: radius_array
 real(kind = 8), dimension(:), allocatable :: length_array
+real(kind = 8), dimension(:), allocatable :: centre_rod
 
 ! Array the data will be occuring over
 
@@ -157,12 +171,22 @@ radius_rod = 5D-3 ! Radius of the rod [m]
 length_rod = 0.2D0 ! length of the rod in [m]
 C_AlCu = 900D0 ! heat capacity of Al-10wt%Cu, this needs to change to be dependent upon temperature.
 dens_AlCu = 2550D0! Density of pure Al at T_melt [kg/m^3]
-k_Al_Cu = 213D0 ! thermal conductivity
+k_Al_Cu = 213D0 ! thermal diffusivity
 
-T_heater1 = 900D0 ! Temperature of the top heater (heater 1)
-T_heater2 = 800D0 ! Temperature of the bottom heater (heater 2)
+T_heater1 = 1200D0 ! Temperature of the top heater (heater 1)
+T_heater2 = 1200D0 ! Temperature of the bottom heater (heater 2)
 T_inf = 293.15D0 ! Room temperature i.e. 20C
 T_0 = 400D0 ! Initial temperature of the system (Al-Cu and molybdenum)
+
+T_centre_start = 900D0 ! Temperature for when the cooling curve controlling the
+                       ! heaters starts
+Time_for_T_change = 1000D0! Time for the change from the initial to final temperatures
+                                                           ! in the heaters. [s]
+Thermal_gradient = 7D0! thermal gradient between the two heaters
+                                                          ! T_heater1/T_heater2
+T_heater1_Final = 300D0 ! final heater temperature
+
+dTdt = (T_heater1_Final-T_heater1)/Time_for_T_change
 
 L_heater1 = 0.05D0 ! length of the first heater
 L_heater2 = 0.05D0 ! length of the second heater
@@ -175,8 +199,8 @@ dens_moly = 10220D0 ! density of the molybdenum
 k_moly = 138D0 ! thermal conductivity of the molybdenum
 R_AlCu_Moly = 0D0 ! Resistance between the molybdenum and the Al-Cu
 
-t_total = 1D6 ! total time the analysis is run over [s]
-Delta_t = 1D1 ! time step
+t_total = 1D3 ! total time the analysis is run over [s]
+Delta_t = 1D-3 ! time step
 Delta_r = 1D-4 ! The radius step
 Delta_L = 1D-3 ! The length step
 
@@ -222,11 +246,17 @@ allocate(Temp_array(1:(n_row_array + 1), 1:(n_col_array + 1))) ! size of array
   Temp_array(2:n_row_array, 2:n_col_array) = T_0 ! Set initial temperature in
                    ! molybdenum and Al_Cu
 
-  ! Save te first Temp_array as a .txt file
-  open(unit=8, file='temp/Temp_array0.txt', ACTION="write", STATUS="replace")
-    do row=1,n_row_array
-    write(8, '(1000F14.7)')( real(Temp_array(row,col)) ,col=1,n_col_array)
-  end do ! end single loop of assigning variables to .txt file
+  ! Save te first Temp_array as a .csv file
+  open(unit=8, file='temp/Temp_array0.csv', ACTION="write", STATUS="replace")
+    write(8, *) "X",",", "Y",",","Z",",", "T"
+    do row = 1, n_row_array
+      do col = 1, n_col_array ! loop along the columns
+        T_to_write = Temp_array(row,col)
+        write(8, *) real(row*Delta_L),",", real(col*Delta_r), &
+        ",",real(0),"," ,real(T_to_write) !, 0, T_to_write) ! Write each row to file
+      enddo
+  enddo ! end loop along the rows
+
 
 ! Assign area of Temp_array_new used in the loop
 allocate(Temp_array_new(1:(n_row_array + 1), 1:(n_col_array + 1))) ! size of array
@@ -248,7 +278,7 @@ allocate(Resistance_array(1:(n_row_array + 1), 1:(n_col_array + 1))) ! size of a
   Resistance_array((rod_array_length + 1), 2:rod_array_radius) = R_AlCu_Moly
     ! Resistance between the Al-Cu rod and the molybdenum heat sink
 
-! Allocate the values of length and rafius for the finite difference calculuations
+! Allocate the values of length and radius for the finite difference calculuations
 ! for every Delta_L and Delta_r at each Delta_t*t_step
 allocate(length_array(1:(moly_array_length + rod_array_length)))
   do i = 1,(moly_array_length + rod_array_length)
@@ -276,30 +306,113 @@ do t_step = 1, no_time_steps   ! start time loop
     ! initialise a new temperature array the same as the previous loops array
   Temp_array_new = Temp_array
 
-  do i = 2, (size(length_array) - 1)  ! loop over length of the array
-    do j = 2, (size(radius_array) - 1) ! loop over radius (width) of the array
+  centre_rod = Temp_array_new(2:rod_array_length,size(radius_array))
+
+  T_centre = sum(centre_rod)/(max(1,size(centre_rod)))
+
+  print*,T_centre,T_heater1,Temp_array_new(2,size(radius_array))
+  ! If the temperature in the centre of the rod is greater than the value of T_centre_start
+  ! then a new temperature for the heaters is to be calculated dependent upon the timestep
+  ! and initial and final temperatures of the heaters.
+
+    if (T_centre .gt. T_centre_start &
+        .and. T_heater1 .ge. T_heater1_Final) then ! start changing temperatures of the heaters
+
+      T_heater1_new = T_heater1 + (dTdt/Delta_t)
+      T_heater2_new = T_heater1_new - Thermal_gradient
+
+      T_heater1 = T_heater1_new
+      T_heater2 = T_heater2_new
+
+      Temp_array_new(2:heater1_array_length, 1) = T_heater1 ! Set heater 1 temperature
+      Temp_array_new((heater1_array_length + aerogel_array_length + 1) &
+      :(heater1_array_length + aerogel_array_length + 1 + heater2_array_length)&
+      , 1) = T_heater2 ! Set heater 2 temperature
+                       ! molybdenum and Al_Cu
+    endif ! stop the changing temperatures of the heaters
+
+      do i = 2, (size(length_array) - 1)  ! loop over length of the array
+        do j = 2, (size(radius_array) - 1) ! loop over radius (width) of the array
+
 
     !Assign variables needed for the loop to calculate the new Temperature, T_new
-      radius_j = radius_array(j) ! the radius at the point i,j
-      radius_East = radius_array(j + 1) ! radius to point to east of i, j
-      radius_West = radius_array(j - 1) ! radius to point west of i, j
-      Temp_ij = Temp_array(i,j) ! Temperature of point i, j
-      Temp_N = Temp_array(i + 1, j) ! Temperature of point to north of i, j
-      Temp_E = Temp_array(i,j + 1) ! Temperature of point to East of i, j
-      Temp_S = Temp_array(i - 1, j) ! Temperature of point to South of i, j
-      Temp_W = Temp_array(i, j - 1) ! Temperature of point to West of i, j
+        radius_j = radius_array(j) ! the radius at the point i,j
+        radius_East = radius_array(j + 1) ! radius to point to east of i, j
+        radius_West = radius_array(j - 1) ! radius to point west of i, j
+        Temp_ij = Temp_array(i,j) ! Temperature of point i, j
+        Temp_N = Temp_array(i + 1, j) ! Temperature of point to north of i, j
+        Temp_E = Temp_array(i,j + 1) ! Temperature of point to East of i, j
+        Temp_S = Temp_array(i - 1, j) ! Temperature of point to South of i, j
+        Temp_W = Temp_array(i, j - 1) ! Temperature of point to West of i, j
 
+
+      ! Calculate thermal conductivities
+
+      ! If the the point lies in the Aluminium-Copper region its thermal conductivity
+      ! is given by:
       ! Calculate the thermal conductivity of all of the relevent points, i.e.
       ! k_ij, k_N, k_E, k_S,k_W. The data is calculated from a polynomial fitted
       ! curve of thermal conductivity data for Al-10wt%Cu from 200K to 800K
       ! data from NIST:
       ! http://www.nist.gov/data/PDFfiles/jpcrd123.pdf
+      if (i .gt. 1 .and. i .le.rod_array_length) then
+        k_ij = a_poly*Temp_ij + b_poly*Temp_ij + c_poly
+        k_N = a_poly*Temp_N + b_poly*Temp_N + c_poly
+        k_E = a_poly*Temp_E + b_poly*Temp_E + c_poly
+        k_S = a_poly*Temp_S + b_poly*Temp_S + c_poly
+        k_W = a_poly*Temp_W + b_poly*Temp_W + c_poly
+      endif
 
-      k_ij = a_poly*Temp_ij + b_poly*Temp_ij + c_poly
-      k_N = a_poly*Temp_N + b_poly*Temp_N + c_poly
-      k_E = a_poly*Temp_E + b_poly*Temp_E + c_poly
-      k_S = a_poly*Temp_S + b_poly*Temp_S + c_poly
-      k_W = a_poly*Temp_W + b_poly*Temp_W + c_poly
+      ! If the the point lies in the molybdenum region its thermal conductivity
+      ! is given by:
+      if (i .gt. rod_array_length .and. i .le.rod_array_length &
+            + moly_array_length) then
+        k_ij = a_poly*Temp_ij + b_poly*Temp_ij + c_poly
+        k_N = a_poly*Temp_N + b_poly*Temp_N + c_poly
+        k_E = a_poly*Temp_E + b_poly*Temp_E + c_poly
+        k_S = a_poly*Temp_S + b_poly*Temp_S + c_poly
+        k_W = a_poly*Temp_W + b_poly*Temp_W + c_poly
+      endif
+
+
+
+      ! Density calculuations for Aluminium-Copper and the molybdenum
+
+      ! Calculate the density of the Aluminium-Copper. The data for the calculuations
+      ! was taken from the Thermocalc database TCFe7. Three curves have been fitted
+      ! to the data which correspond to the temperature ranges 150K - 715K, 715K
+      ! - 840K, and 840K+. The graphs for the corresponding regions are included
+      ! in the file which contains this program.
+
+      ! Calculate the density of the first temperature region: 150K - 715K
+      if (Temp_ij .lt. 715) then
+          dens_AlCu = (-0.0000726)*(Temp_ij**2) + (-0.149)*Temp_ij + 2.93d3
+        ! Calculate the density of the second temperature region 715K - 840K
+      elseif (Temp_ij .ge. 715 .and. Temp_ij .lt. 840) then
+          dens_AlCu = (7.77d6) + (-5.08d4)*Temp_ij + 133*(Temp_ij**2) + (-0.174) &
+            *(Temp_ij**3) + 0.000114*(Temp_ij**4) + (-2.98d-8)*(Temp_ij**5)
+      elseif (Temp_ij .ge. 840) then
+          dens_AlCu = (-0.230)*Temp_ij + 2.76d3
+      endif
+
+      ! Calculate the heat capacity of the Aluminium-Copper. The data for the
+      ! calculations was taken from the thermocalc database TCFe7. Three curves
+      ! have been fitted to the data which correspond to the temperature ranges
+      ! 80K to 820K, 820K to 905K, and 950K+.
+
+      ! Calculate the heat capacity of the first region: 80K to 820K
+      if (Temp_ij .lt. 820) then
+        C_AlCu = (-56.3) + (1.2)*Temp_ij + (-0.00730)*(Temp_ij**2) &
+          + (0.0000228)*(Temp_ij**3) + (-3.78d-8)*(Temp_ij**4) &
+          + (3.15d-11)*(Temp_ij**5) + (-1.04d-14)*(Temp_ij**6)
+      ! Calculate the heat capacity of the second region: 820K to 905K
+      elseif (Temp_ij .ge. 820 .and. Temp_ij .lt. 905) then
+        C_AlCu = (1.81d7) + (-8.52d4)*Temp_ij + (150)*(Temp_ij**2) &
+          + (-0.118)*(Temp_ij**3) + (0.0000345)*(Temp_ij**4)
+      ! Calculte the heat capacity of the third region: 905K+
+      elseif (Temp_ij .ge. 905) then
+        C_AlCu = 31.2
+      endif
        ! Calculate the conductivity across the edges of the finite volumes
 
        ! North and South vectors
@@ -375,15 +488,15 @@ do t_step = 1, no_time_steps   ! start time loop
 
   ! Save the new Temperature array as a .txt file from 2 -> the last one.
   ! The first file was saved above earlier.
-  if (MOD(t_step,10) .eq. 0) then
+  if (MOD(t_step,100) .eq. 0) then
   write (filename, '( "temp/Temp_array", i0,".csv" )' ) t_step
   open(unit=t_step,file=filename) ! open file
       write(t_step, *) "X",",", "Y",",","Z",",", "T"
       do row = 1, n_row_array
       do col = 1, n_col_array ! loop along the columns
         T_to_write = Temp_array(row,col)
-      write(t_step, *) real(row),",", real(col), &
-      ",",real(0),"," ,real(T_to_write) !, 0, T_to_write) ! Write each row to file
+      write(t_step, *) real(row*Delta_L),",", real(col*Delta_r), &
+      ",",real(0),"," ,real(T_to_write)!, 0, T_to_write) ! Write each row to file
       enddo
       enddo ! end loop along the rows
   close (t_step) ! close the file Temp_array"t_step".txt
