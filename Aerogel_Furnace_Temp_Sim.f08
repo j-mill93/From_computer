@@ -173,10 +173,10 @@ C_AlCu = 900D0 ! heat capacity of Al-10wt%Cu, this needs to change to be depende
 dens_AlCu = 2550D0! Density of pure Al at T_melt [kg/m^3]
 k_Al_Cu = 213D0 ! thermal diffusivity
 
-T_heater1 = 1200D0 ! Temperature of the top heater (heater 1)
-T_heater2 = 1200D0 ! Temperature of the bottom heater (heater 2)
-T_inf = 293.15D0 ! Room temperature i.e. 20C
-T_0 = 400D0 ! Initial temperature of the system (Al-Cu and molybdenum)
+T_heater1 = 1500D0 ! Temperature of the top heater (heater 1)
+T_heater2 = 1500D0 ! Temperature of the bottom heater (heater 2)
+T_inf = 0.0D0 ! Room temperature i.e. 20C
+T_0 = 273D0 ! Initial temperature of the system (Al-Cu and molybdenum)
 
 T_centre_start = 900D0 ! Temperature for when the cooling curve controlling the
                        ! heaters starts
@@ -200,7 +200,7 @@ k_moly = 138D0 ! thermal conductivity of the molybdenum
 R_AlCu_Moly = 0D0 ! Resistance between the molybdenum and the Al-Cu
 
 t_total = 1D3 ! total time the analysis is run over [s]
-Delta_t = 1D-3 ! time step
+Delta_t = 1D-1 ! time step
 Delta_r = 1D-4 ! The radius step
 Delta_L = 1D-3 ! The length step
 
@@ -310,7 +310,7 @@ do t_step = 1, no_time_steps   ! start time loop
 
   T_centre = sum(centre_rod)/(max(1,size(centre_rod)))
 
-  print*,T_centre,T_heater1,Temp_array_new(2,size(radius_array))
+  !print*,T_centre,T_heater1,Temp_array_new(2,2),Temp_array_new(2,size(radius_array)-2),Temp_array_new(2,size(radius_array))
   ! If the temperature in the centre of the rod is greater than the value of T_centre_start
   ! then a new temperature for the heaters is to be calculated dependent upon the timestep
   ! and initial and final temperatures of the heaters.
@@ -318,7 +318,7 @@ do t_step = 1, no_time_steps   ! start time loop
     if (T_centre .gt. T_centre_start &
         .and. T_heater1 .ge. T_heater1_Final) then ! start changing temperatures of the heaters
 
-      T_heater1_new = T_heater1 + (dTdt/Delta_t)
+      T_heater1_new = T_heater1 + dTdt
       T_heater2_new = T_heater1_new - Thermal_gradient
 
       T_heater1 = T_heater1_new
@@ -407,8 +407,10 @@ do t_step = 1, no_time_steps   ! start time loop
           + (3.15d-11)*(Temp_ij**5) + (-1.04d-14)*(Temp_ij**6)
       ! Calculate the heat capacity of the second region: 820K to 905K
       elseif (Temp_ij .ge. 820 .and. Temp_ij .lt. 905) then
-        C_AlCu = (1.81d7) + (-8.52d4)*Temp_ij + (150)*(Temp_ij**2) &
-          + (-0.118)*(Temp_ij**3) + (0.0000345)*(Temp_ij**4)
+      !  C_AlCu = (1.81d7) + ((-8.52d4)*Temp_ij) + ((150)*(Temp_ij**2)) &
+      !    + ((-0.118)*(Temp_ij**3)) + ((0.0000345)*(Temp_ij**4))
+C_AlCu = 300
+          !print*(C_AlCu)
       ! Calculte the heat capacity of the third region: 905K+
       elseif (Temp_ij .ge. 905) then
         C_AlCu = 31.2
@@ -458,28 +460,43 @@ do t_step = 1, no_time_steps   ! start time loop
        Q_W = K_conduct_W*(Temp_W - Temp_ij)
       ! Calculate the new Temperature at the point i,j and time t_step
 
-       if (ABS(Q_S) .gt. ABS(Q_N)) then
+       if (Q_S .gt. Q_N .and. Q_E .gt. Q_W) then
           T_new = (((-Q_W + Q_E + Q_S - Q_N)*Delta_t) &
              / (2*pi*(C_AlCu*dens_AlCu)*radius_array(j)*Delta_r)) + Temp_ij
 
           Temp_array_new(i,j) = T_new
-
-       elseif (ABS(Q_N) .gt. ABS(Q_S)) then
+        elseif (Q_S .gt. Q_N .and. Q_E .lt. Q_W) then
+             T_new = (((Q_W - Q_E + Q_S - Q_N)*Delta_t) &
+                / (2*pi*(C_AlCu*dens_AlCu)*radius_array(j)*Delta_r)) + Temp_ij
+        elseif (Q_S .gt. Q_N .and. Q_E .eq. Q_W) then
+             T_new = (((Q_S - Q_N)*Delta_t) &
+                / (2*pi*(C_AlCu*dens_AlCu)*radius_array(j)*Delta_r)) + Temp_ij
+             Temp_array_new(i,j) = T_new
+       elseif (Q_N .lt. Q_S .and. Q_E .gt. Q_W) then
           T_new = (((- Q_W + Q_E - Q_S + Q_N)*Delta_t) &
              / (2*pi*(C_AlCu*dens_AlCu)*radius_array(j)*Delta_r)) + Temp_ij
           Temp_array_new(i,j) = T_new
+        elseif (Q_N .lt. Q_S .and. Q_E .eq. Q_W) then
+           T_new = (((- Q_S + Q_N)*Delta_t) &
+              / (2*pi*(C_AlCu*dens_AlCu)*radius_array(j)*Delta_r)) + Temp_ij
+           Temp_array_new(i,j) = T_new
+        elseif (Q_N .lt. Q_S .and. Q_E .lt. Q_W) then
+           T_new = (((- Q_W + Q_E - Q_S + Q_N)*Delta_t) &
+              / (2*pi*(C_AlCu*dens_AlCu)*radius_array(j)*Delta_r)) + Temp_ij
+           Temp_array_new(i,j) = T_new
        else
 
-          T_new = (((-Q_W + Q_E - Q_S + Q_N)*Delta_t) &
-             / (2*pi*(C_AlCu*dens_AlCu)*radius_array(j)*Delta_r)) + Temp_ij
 
-          Temp_array_new(i,j) = T_new
+         T_new = (((-Q_W + Q_E + Q_S - Q_N)*Delta_t) &
+            / (2*pi*(C_AlCu*dens_AlCu)*radius_array(j)*Delta_r)) + Temp_ij
+
+         Temp_array_new(i,j) = T_new
 
         endif
 
     end do   ! end loop over radius
 
-    Temp_array_new(i,size(radius_array)) = Temp_array(i,size(radius_array)-1)
+    Temp_array_new(i,size(radius_array)) = Temp_array(i,size(radius_array)-1)-10
 
   end do   ! end loop over length
 
@@ -488,7 +505,7 @@ do t_step = 1, no_time_steps   ! start time loop
 
   ! Save the new Temperature array as a .txt file from 2 -> the last one.
   ! The first file was saved above earlier.
-  if (MOD(t_step,100) .eq. 0) then
+  if (MOD(t_step,10000) .eq. 0) then
   write (filename, '( "temp/Temp_array", i0,".csv" )' ) t_step
   open(unit=t_step,file=filename) ! open file
       write(t_step, *) "X",",", "Y",",","Z",",", "T"
